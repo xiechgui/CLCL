@@ -1,0 +1,62 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Release x86
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Build application and installer
+        run: .\Installer\build.ps1 -Configuration Release -Platform x86
+
+      - name: Prepare portable package
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageDir = Join-Path $env:RUNNER_TEMP 'CLCL-portable-x86'
+          New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+          foreach ($file in @('CLCL.exe', 'CLCLSet.exe', 'CLCLHook.dll')) {
+            $source = Join-Path 'Release' $file
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw "Missing build output: $source"
+            }
+            Copy-Item -LiteralPath $source -Destination $packageDir
+          }
+          Copy-Item -Path 'readme_*.txt' -Destination $packageDir
+          Copy-Item -LiteralPath 'LICENSE' -Destination (Join-Path $packageDir 'LICENSE.txt')
+          Set-Content -LiteralPath (Join-Path $packageDir 'clcl_app.ini') -Encoding ASCII -Value @('[GENERAL]', 'portable=1')
+
+      - name: Upload portable application
+        uses: actions/upload-artifact@v6
+        with:
+          name: CLCL-portable-x86
+          path: ${{ runner.temp }}/CLCL-portable-x86/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: CLCL-installer-x86
+          path: Installer/out/clcl*.exe
+          if-no-files-found: error
+          retention-days: 14
